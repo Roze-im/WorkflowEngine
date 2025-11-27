@@ -25,7 +25,7 @@ open class WorkflowEngine<
     Delegate.Store == Store
 {
     var stateStore: StateStore
-    var logger: Logger
+    var logger: WELogger
     var flowIndex: Index
     let stateSerializationFileName: String
     public weak var delegate: Delegate?
@@ -33,7 +33,7 @@ open class WorkflowEngine<
     
     public init(
         stateStore: StateStore,
-        logger: @escaping Logger,
+        logger: @escaping WELogger,
         stateSerializationFileName: String = "WorkflowEngineState",
         resumeFlowsAfterUnarchiving: Bool = true
     ) {

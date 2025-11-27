@@ -23,7 +23,7 @@ class TestflowStepBase: WorkflowStep {
     
     weak var progressDelegate: WorkflowStepProgressDelegate?
     
-    var logger: Logger?
+    var logger: WELogger?
 
     var customDependency: String?
 

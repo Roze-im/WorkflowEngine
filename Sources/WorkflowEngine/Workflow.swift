@@ -16,7 +16,7 @@ public protocol Workflow: Codable, WorkflowStepProgressDelegate {
     var waitFor: Set<WorkflowId> { get }
     var progressDelegate: WorkflowProgressDelegate? { get set }
 
-    var logger: Logger? { get set }
+    var logger: WELogger? { get set }
     var flowMutexQueue: DispatchQueue { get }
 
     func start()

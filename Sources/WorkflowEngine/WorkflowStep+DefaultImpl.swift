@@ -8,7 +8,7 @@
 import Foundation
 
 extension WorkflowStep {
-    public func configure(logger: @escaping Logger, progressDelegate: WorkflowStepProgressDelegate) {
+    public func configure(logger: @escaping WELogger, progressDelegate: WorkflowStepProgressDelegate) {
         self.logger = logger
         self.progressDelegate = progressDelegate
     }

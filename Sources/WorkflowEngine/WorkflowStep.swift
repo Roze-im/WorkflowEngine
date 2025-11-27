@@ -19,10 +19,10 @@ public protocol WorkflowStep: AnyObject, Codable {
     var identifier: WorkflowStepId { get}
     var progress: WorkflowStepProgress {get set}
     var progressDelegate: WorkflowStepProgressDelegate? {get set}
-    var logger: Logger? { get set }
-    
+    var logger: WELogger? { get set }
+
     // init(identifier: WorkflowStepId, logSubsystem: LogSubsystem)
-    func configure(logger: @escaping Logger, progressDelegate: WorkflowStepProgressDelegate)
+    func configure(logger: @escaping WELogger, progressDelegate: WorkflowStepProgressDelegate)
 
     func execute()
     // Called after restoring from disk ,potentially reinjecting dependencies

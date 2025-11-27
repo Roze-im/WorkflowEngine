@@ -29,7 +29,7 @@ open class TestflowBase: Workflow {
     
     public var waitFor: Set<WorkflowId>
     
-    public var logger: Logger?
+    public var logger: WELogger?
     public weak var progressDelegate: WorkflowProgressDelegate?
     
     var customDependency: String?
