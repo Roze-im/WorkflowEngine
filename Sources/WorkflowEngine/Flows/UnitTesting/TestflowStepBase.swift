@@ -48,7 +48,11 @@ class TestflowStepBase: WorkflowStep {
     func cancel() {
         logger?(self, .trace, "\(identifier) cancel")
     }
-    
+
+    func reset() {
+        logger?(self, .trace, "\(identifier) reset")
+    }
+
     func dispose() {
         logger?(self, .trace, "\(identifier) dispose")
     }

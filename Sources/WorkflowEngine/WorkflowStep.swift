@@ -27,6 +27,8 @@ public protocol WorkflowStep: AnyObject, Codable {
     func execute()
     // Called after restoring from disk ,potentially reinjecting dependencies
     func prepareAfterUnarchiving()
+    // Called upon being reftried after a failure
+    func reset()
     // Called upon flow being cancelled (logout, etc.)
     func cancel()
 

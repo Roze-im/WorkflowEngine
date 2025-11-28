@@ -33,7 +33,11 @@ open class TestflowBase: Workflow {
     public weak var progressDelegate: WorkflowProgressDelegate?
     
     var customDependency: String?
-    
+
+    public func shouldRetryOnErrorUponUnarchived() -> Bool {
+        return true
+    }
+
     public var flowMutexQueue: DispatchQueue = DispatchQueue(label: "baseflow_mutex_dq")
 
     init(identifier: WorkflowId, tags: Set<String> = [], waitFor: Set<WorkflowId> = []) {

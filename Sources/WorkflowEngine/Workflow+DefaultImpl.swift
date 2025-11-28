@@ -71,14 +71,23 @@ extension Workflow {
         }
     }
     
-    // MARK: - Default start / pause / resume implementation
+    // MARK: - Default start / pause / reset / resume implementation
     public func start() {
         logger?(self, .trace, "start")
         performUpdate { (flow) in
             flow.executeNextPending()
         }
     }
-    
+
+    public func reset() {
+      logger?(self, .trace, "reset")
+      performUpdate { flow in
+          flow.steps.forEach { step in
+              step.reset()
+          }
+      }
+    }
+
     public func resume() {
         logger?(self, .trace, "resume")
 

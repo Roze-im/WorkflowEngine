@@ -78,6 +78,13 @@ open class WorkflowEngine<
         //filter out flows that are successful
         let progress = flow.progress ?? .pending
         switch progress {
+        case .failure where flow.shouldRetryOnErrorUponUnarchived():
+            logger(
+                self,
+                .debug,
+                "flow \(flow) was archived in error state. retry it."
+            )
+            flow.reset()
         case .success,
              .failure:
             logger(
