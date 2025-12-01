@@ -68,18 +68,19 @@ open class WorkflowEngine<
         logger(self, .debug, "Restore flow states after unarchiving")
         let flowsStillInProgress = Index()
         for entry in flowIndex.flows.values {
-            if let progress = restoreFlowAfterUnarchiving(entry.anyFlow, retryCount: entry.retryCount) {
+            if let progress = restoreFlowAfterUnarchiving(entry.anyFlow) {
+                // Reset retry count on app restart - backoff starts fresh
                 flowsStillInProgress.insertOrUpdate(.init(
                     anyFlow: entry.anyFlow,
                     progress: progress,
-                    retryCount: entry.retryCount
+                    retryCount: 0
                 ))
             }
         }
         self.flowIndex = flowsStillInProgress
     }
     
-    public func restoreFlowAfterUnarchiving(_ anyFlow: AnyWorkflow, retryCount: Int = 0) -> WorkflowProgress? {
+    public func restoreFlowAfterUnarchiving(_ anyFlow: AnyWorkflow) -> WorkflowProgress? {
         let flow = anyFlow.flow
         logger(self, .debug, "…restoring \(flow.identifier)")
 
@@ -91,8 +92,15 @@ open class WorkflowEngine<
         let progress = flow.progress ?? .pending
         switch progress {
         case .failure where flow.shouldRetryOnErrorUponUnarchived():
-            // Will be retried by resumeFlowsAfterUnarchiving
-            return progress
+            logger(
+                self,
+                .debug,
+                "flow \(flow) was archived in error state. Will retry with backoff."
+            )
+            // Reset flow so steps can do their cleanup
+            flow.reset()
+            // Return .pending since we just reset - will be retried by resumeFlowsAfterUnarchiving
+            return .pending
 
         case .success,
              .failure:
@@ -222,17 +230,10 @@ open class WorkflowEngine<
     func resumeFlowsAfterUnarchiving() {
         logger(self, .debug, "resumeFlowsAfterUnarchiving")
         flowIndex.flows.forEach { entry in
-            let flow = entry.value.anyFlow.flow
-            
-            // For failed flows, schedule retry with backoff
-            if case .failure = entry.value.progress,
-               flow.shouldRetryOnErrorUponUnarchived() {
-                scheduleRetry(flowId: entry.key)
-                return
-            }
-            
+            // All flows execute immediately on restart (backoff was reset)
+            // If they fail again, backoff will kick in
             executeFlowOrMarkAsPendingIfWaiting(
-                flow: flow,
+                flow: entry.value.anyFlow.flow,
                 executeAsResume: true
             )
         }
@@ -258,7 +259,10 @@ open class WorkflowEngine<
         }
         
         let delay = retryDelay(forRetryCount: entry.retryCount)
-        let retryNumber = entry.retryCount + 1
+        
+        // Increment retry count now and persist (so it survives app restart)
+        let retryNumber = flowIndex.incrementRetryCount(forFlowWithId: flowId)
+        archiveFlows()
         
         logger(self, .debug, "Scheduling retry #\(retryNumber) for flow \(flowId) in \(String(format: "%.1f", delay))s")
         
@@ -276,17 +280,12 @@ open class WorkflowEngine<
         
         let flow = entry.anyFlow.flow
         
-        // Only retry if still in failure state
-        guard case .failure = entry.progress else {
-            logger(self, .debug, "Flow \(flowId) is no longer in failure state, skipping retry")
-            return
-        }
-        
-        let retryCount = flowIndex.incrementRetryCount(forFlowWithId: flowId)
-        logger(self, .debug, "Executing retry #\(retryCount) for flow \(flowId)")
+        logger(self, .debug, "Executing retry #\(entry.retryCount) for flow \(flowId)")
         
         flow.reset()
-        _ = flowIndex.updateProgress(flow.progress ?? .pending, forFlowWithId: flowId)
+        // After reset, all steps are .pending, so flow progress is .pending
+        // Don't read flow.progress here - reset() is async and may not have completed
+        _ = flowIndex.updateProgress(.pending, forFlowWithId: flowId)
         archiveFlows()
         
         executeFlowOrMarkAsPendingIfWaiting(flow: flow, executeAsResume: false)
