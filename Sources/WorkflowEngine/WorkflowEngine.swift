@@ -250,7 +250,7 @@ open class WorkflowEngine<
         return min(delay, retryMaxDelay)
     }
     
-    /// Schedule a retry for a failed flow
+    /// Schedule a retry for a flow
     private func scheduleRetry(flowId: WorkflowId) {
         guard let entry = flowIndex.flows[flowId] else { return }
         
@@ -261,7 +261,12 @@ open class WorkflowEngine<
             return
         }
         
+        let flow = entry.anyFlow.flow
         let delay = retryDelay(forRetryCount: entry.retryCount)
+        
+        // Reset flow immediately so it's archived as pending (survives app restart)
+        flow.reset()
+        _ = flowIndex.updateProgress(.pending, forFlowWithId: flowId)
         
         // Increment retry count now and persist (so it survives app restart)
         let retryNumber = flowIndex.incrementRetryCount(forFlowWithId: flowId)
@@ -284,12 +289,6 @@ open class WorkflowEngine<
         let flow = entry.anyFlow.flow
         
         logger(self, .debug, "Executing retry #\(entry.retryCount) for flow \(flowId)")
-        
-        flow.reset()
-        // After reset, all steps are .pending, so flow progress is .pending
-        // Don't read flow.progress here - reset() is async and may not have completed
-        _ = flowIndex.updateProgress(.pending, forFlowWithId: flowId)
-        archiveFlows()
         
         executeFlowOrMarkAsPendingIfWaiting(flow: flow, executeAsResume: false)
     }
