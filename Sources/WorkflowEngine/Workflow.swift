@@ -25,7 +25,7 @@ public protocol Workflow: Codable, WorkflowStepProgressDelegate {
     func dispose()
     func shouldRetryOnErrorUponUnarchived() -> Bool
 }
-        
+
 // Wrapper, usually an enum, that contains all the possible flow types.
 public protocol AnyWorkflowType: Codable {
     var flow: Workflow { get }

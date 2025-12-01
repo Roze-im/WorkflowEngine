@@ -73,23 +73,24 @@ extension Workflow {
     
     // MARK: - Default start / pause / reset / resume implementation
     public func start() {
-        logger?(self, .trace, "start")
+        logger?(self, .trace, "[\(identifier)] start")
         performUpdate { (flow) in
             flow.executeNextPending()
         }
     }
 
     public func reset() {
-      logger?(self, .trace, "reset")
+      logger?(self, .trace, "[\(identifier)] reset")
       performUpdate { flow in
           flow.steps.forEach { step in
               step.reset()
+              step.progress = .pending
           }
       }
     }
 
     public func resume() {
-        logger?(self, .trace, "resume")
+        logger?(self, .trace, "[\(identifier)] resume")
 
         performUpdate { (flow) in
             if case .failure(let errorCode, let errorMessage) = flow.progress {
@@ -140,16 +141,18 @@ extension Workflow {
     }
     
     public func prepareAfterUnarchiving() {
-        steps.forEach { $0.prepareAfterUnarchiving() }
+      logger?(self, .trace, "[\(identifier)] prepareAfterUnarchiving")
+      steps.forEach { $0.prepareAfterUnarchiving() }
     }
     
     public func dispose() {
-        logger?(self, .trace, "dispose")
+        logger?(self, .trace, "[\(identifier)] dispose")
         steps.forEach { $0.dispose() }
     }
     
     public func cancel() {
-        steps.forEach { $0.cancel() }
+      logger?(self, .trace, "[\(identifier)] cancel")
+      steps.forEach { $0.cancel() }
     }
     
     public func sendProgressToDelegate() {
