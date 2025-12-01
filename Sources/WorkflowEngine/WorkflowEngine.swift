@@ -85,6 +85,8 @@ open class WorkflowEngine<
                 "flow \(flow) was archived in error state. retry it."
             )
             flow.reset()
+            return flow.progress
+
         case .success,
              .failure:
             logger(
