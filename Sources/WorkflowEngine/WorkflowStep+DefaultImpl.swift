@@ -20,4 +20,12 @@ extension WorkflowStep {
             progressDelegate?.stepDidProgress(step: self)
         }
     }
+
+  func prepareAfterUnarchiving() {}
+
+  func reset() {}
+
+  func cancel() {}
+
+  func dispose() {}
 }
