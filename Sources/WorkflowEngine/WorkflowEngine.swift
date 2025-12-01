@@ -29,6 +29,17 @@ open class WorkflowEngine<
     var flowIndex: Index
     let stateSerializationFileName: String
     public weak var delegate: Delegate?
+    
+    // MARK: - Retry Configuration
+    
+    /// Base delay for retry (default 1 second)
+    public var retryBaseDelay: TimeInterval = 1.0
+    
+    /// Maximum delay between retries (default 5 minutes)
+    public var retryMaxDelay: TimeInterval = 300.0
+    
+    /// Maximum number of retries (default 10, nil = unlimited)
+    public var maxRetryCount: Int? = 10
 
     
     public init(
@@ -57,17 +68,18 @@ open class WorkflowEngine<
         logger(self, .debug, "Restore flow states after unarchiving")
         let flowsStillInProgress = Index()
         for entry in flowIndex.flows.values {
-            if let progress = restoreFlowAfterUnarchiving(entry.anyFlow) {
+            if let progress = restoreFlowAfterUnarchiving(entry.anyFlow, retryCount: entry.retryCount) {
                 flowsStillInProgress.insertOrUpdate(.init(
                     anyFlow: entry.anyFlow,
-                    progress: progress
+                    progress: progress,
+                    retryCount: entry.retryCount
                 ))
             }
         }
         self.flowIndex = flowsStillInProgress
     }
     
-    public func restoreFlowAfterUnarchiving(_ anyFlow: AnyWorkflow) -> WorkflowProgress? {
+    public func restoreFlowAfterUnarchiving(_ anyFlow: AnyWorkflow, retryCount: Int = 0) -> WorkflowProgress? {
         let flow = anyFlow.flow
         logger(self, .debug, "…restoring \(flow.identifier)")
 
@@ -79,13 +91,8 @@ open class WorkflowEngine<
         let progress = flow.progress ?? .pending
         switch progress {
         case .failure where flow.shouldRetryOnErrorUponUnarchived():
-            logger(
-                self,
-                .debug,
-                "flow \(flow) was archived in error state. retry it."
-            )
-            flow.reset()
-            return flow.progress
+            // Will be retried by resumeFlowsAfterUnarchiving
+            return progress
 
         case .success,
              .failure:
@@ -215,11 +222,74 @@ open class WorkflowEngine<
     func resumeFlowsAfterUnarchiving() {
         logger(self, .debug, "resumeFlowsAfterUnarchiving")
         flowIndex.flows.forEach { entry in
+            let flow = entry.value.anyFlow.flow
+            
+            // For failed flows, schedule retry with backoff
+            if case .failure = entry.value.progress,
+               flow.shouldRetryOnErrorUponUnarchived() {
+                scheduleRetry(flowId: entry.key)
+                return
+            }
+            
             executeFlowOrMarkAsPendingIfWaiting(
-                flow: entry.value.anyFlow.flow,
+                flow: flow,
                 executeAsResume: true
             )
         }
+    }
+    
+    // MARK: - Retry with Exponential Backoff
+    
+    /// Calculate delay using exponential backoff: baseDelay * 2^retryCount, capped at maxDelay
+    private func retryDelay(forRetryCount retryCount: Int) -> TimeInterval {
+        let delay = retryBaseDelay * pow(2.0, Double(retryCount))
+        return min(delay, retryMaxDelay)
+    }
+    
+    /// Schedule a retry for a failed flow
+    private func scheduleRetry(flowId: WorkflowId) {
+        guard let entry = flowIndex.flows[flowId] else { return }
+        
+        // Check max retries
+        if let maxRetries = maxRetryCount, entry.retryCount >= maxRetries {
+            logger(self, .warning, "flow \(flowId) exceeded max retries (\(maxRetries)), disposing")
+            disposeFlow(withId: flowId)
+            return
+        }
+        
+        let delay = retryDelay(forRetryCount: entry.retryCount)
+        let retryNumber = entry.retryCount + 1
+        
+        logger(self, .debug, "Scheduling retry #\(retryNumber) for flow \(flowId) in \(String(format: "%.1f", delay))s")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.executeRetry(flowId: flowId)
+        }
+    }
+    
+    /// Execute a scheduled retry
+    private func executeRetry(flowId: WorkflowId) {
+        guard let entry = flowIndex.flows[flowId] else {
+            logger(self, .debug, "Flow \(flowId) no longer exists, skipping retry")
+            return
+        }
+        
+        let flow = entry.anyFlow.flow
+        
+        // Only retry if still in failure state
+        guard case .failure = entry.progress else {
+            logger(self, .debug, "Flow \(flowId) is no longer in failure state, skipping retry")
+            return
+        }
+        
+        let retryCount = flowIndex.incrementRetryCount(forFlowWithId: flowId)
+        logger(self, .debug, "Executing retry #\(retryCount) for flow \(flowId)")
+        
+        flow.reset()
+        _ = flowIndex.updateProgress(flow.progress ?? .pending, forFlowWithId: flowId)
+        archiveFlows()
+        
+        executeFlowOrMarkAsPendingIfWaiting(flow: flow, executeAsResume: false)
     }
 }
 
@@ -232,18 +302,26 @@ extension WorkflowEngine: WorkflowProgressDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Note : it may be a good idea to do the update on a background thread
-            // because updateFlowProgress serialize on disk.
-            self.updateFlowProgress(withId: flowId,
-                                    progress: progress)
+            self.updateFlowProgress(withId: flowId, progress: progress)
             self.delegate?.workflowEngine(
                 self,
                 flow: flowId,
                 didRegisterProgress: progress,
                 tags: tags
             )
-            if case .success = progress {
+            
+            switch progress {
+            case .success:
+                self.flowIndex.resetRetryCount(forFlowWithId: flowId)
                 self.disposeFlow(withId: flowId)
+                
+            case .failure:
+                if self.flowIndex.flows[flowId]?.anyFlow.flow.shouldRetryOnErrorUponUnarchived() == true {
+                    self.scheduleRetry(flowId: flowId)
+                }
+                
+            default:
+                break
             }
         }
     }

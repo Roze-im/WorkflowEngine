@@ -8,9 +8,10 @@
 import Foundation
 
 struct WorkflowAndProgress<AnyWorkflow: AnyWorkflowType>: Codable {
-     var anyFlow: AnyWorkflow
-     var progress: WorkflowProgress
- }
+    var anyFlow: AnyWorkflow
+    var progress: WorkflowProgress
+    var retryCount: Int = 0
+}
 
 public class WorkflowIndex<AnyWorkflow: AnyWorkflowType>: Codable {
     var flows: [WorkflowId: WorkflowAndProgress<AnyWorkflow>]
@@ -36,7 +37,8 @@ public class WorkflowIndex<AnyWorkflow: AnyWorkflowType>: Codable {
         }
         flows[flowId] = .init(
             anyFlow: existingFlowAndProgress.anyFlow,
-            progress: progress
+            progress: progress,
+            retryCount: existingFlowAndProgress.retryCount
         )
         return existingFlowAndProgress.progress
     }
@@ -64,5 +66,24 @@ public class WorkflowIndex<AnyWorkflow: AnyWorkflowType>: Codable {
         flows.removeValue(forKey: flowId)
         pendingFlowIds.remove(flowId)
         return flow.anyFlow
+    }
+    
+    // MARK: - Retry
+    
+    func incrementRetryCount(forFlowWithId flowId: WorkflowId) -> Int {
+        guard var entry = flows[flowId] else { return 0 }
+        entry.retryCount += 1
+        flows[flowId] = entry
+        return entry.retryCount
+    }
+    
+    func resetRetryCount(forFlowWithId flowId: WorkflowId) {
+        guard var entry = flows[flowId] else { return }
+        entry.retryCount = 0
+        flows[flowId] = entry
+    }
+    
+    func retryCount(forFlowWithId flowId: WorkflowId) -> Int {
+        flows[flowId]?.retryCount ?? 0
     }
 }
