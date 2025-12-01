@@ -21,14 +21,20 @@ final class TestFlowEngineDelegate: WorkflowEngineDelegate {
     
     var progressCalls = [WorkflowId: [(Set<String>,WorkflowProgress)]]()
     var onProgressCall: ((WorkflowId, WorkflowProgress, Set<String>) -> Void)?
+    
+    /// Controls whether the delegate accepts the flow completion.
+    /// Set to `false` to trigger a retry instead of disposal.
+    var shouldAcceptProgress: ((WorkflowId, WorkflowProgress, Set<String>) -> Bool)?
+    
     func workflowEngine(
         _ engine: TestFlowEngineType,
         flow: WorkflowId,
         didRegisterProgress progress: WorkflowProgress,
         tags: Set<String>
-    ) {
+    ) -> Bool {
         progressCalls[flow, default: []].append((tags, progress))
         onProgressCall?(flow, progress, tags)
+        return shouldAcceptProgress?(flow, progress, tags) ?? true
     }
 }
 

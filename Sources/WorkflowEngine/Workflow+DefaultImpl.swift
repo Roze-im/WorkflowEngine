@@ -83,6 +83,7 @@ extension Workflow {
       logger?(self, .trace, "[\(identifier)] reset")
       performUpdate { flow in
           flow.steps.forEach { step in
+              step.cancel()  // Cancel ongoing work before resetting
               step.reset()
               step.progress = .pending
           }

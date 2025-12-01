@@ -192,4 +192,139 @@ final class WorkflowEngineTests: XCTestCase {
         wait(for: [flow1Completed, flow2Completed], timeout: 2)
 
     }
+    
+    // MARK: - Retry Tests
+    
+    /// Test that when delegate returns false on success, the flow is retried instead of disposed
+    func testRetryWhenDelegateRejectSuccess() throws {
+        let flow = ConfigurableFlow(identifier: "retry_on_delegate_reject")
+        let delegate = TestFlowEngineDelegate()
+        let engine = TestFlowEngine(
+            stateStore: TestFlowStateStore(),
+            logger: { print("[\($1)] \(Date()) \(String(describing: $0)) \($2)") }
+        )
+        engine.delegate = delegate
+        
+        // Configure very short retry delays for testing
+        engine.retryBaseDelay = 0.1
+        engine.retryMaxDelay = 0.5
+        engine.maxRetryCount = 3
+        
+        var successCount = 0
+        let firstSuccessRejected = expectation(description: "first success rejected")
+        let secondSuccessAccepted = expectation(description: "second success accepted")
+        
+        // First time: reject the success (return false), second time: accept it (return true)
+        delegate.shouldAcceptProgress = { flowId, progress, tags in
+            guard progress.isSuccessful else { return true }
+            successCount += 1
+            if successCount == 1 {
+                // Reject first success - should trigger retry
+                firstSuccessRejected.fulfill()
+                return false
+            } else {
+                // Accept second success
+                secondSuccessAccepted.fulfill()
+                return true
+            }
+        }
+        
+        engine.executeNewFlow(.configurable(flow))
+        
+        wait(for: [firstSuccessRejected, secondSuccessAccepted], timeout: 5, enforceOrder: true)
+        
+        // Verify the step was executed twice (initial + 1 retry)
+        XCTAssertEqual(flow.configurableStep.executionCount, 2, "Step should have been executed twice")
+        XCTAssertEqual(successCount, 2, "Should have received 2 success callbacks")
+    }
+    
+    /// Test that flow failure triggers retry when shouldRetryOnErrorUponUnarchived returns true
+    func testRetryOnFlowFailure() throws {
+        let flow = ConfigurableFlow(identifier: "retry_on_failure")
+        flow.configurableStep.shouldFail = true // Configure step to fail
+        
+        let delegate = TestFlowEngineDelegate()
+        let engine = TestFlowEngine(
+            stateStore: TestFlowStateStore(),
+            logger: { print("[\($1)] \(Date()) \(String(describing: $0)) \($2)") }
+        )
+        engine.delegate = delegate
+        
+        // Configure very short retry delays for testing
+        engine.retryBaseDelay = 0.1
+        engine.retryMaxDelay = 0.5
+        engine.maxRetryCount = 3
+        
+        var failureCount = 0
+        let firstFailure = expectation(description: "first failure")
+        let flowSucceeded = expectation(description: "flow succeeded after retry")
+        
+        delegate.onProgressCall = { flowId, progress, tags in
+            switch progress {
+            case .failure:
+                failureCount += 1
+                if failureCount == 1 {
+                    firstFailure.fulfill()
+                    // After first failure, configure step to succeed on next attempt
+                    flow.configurableStep.shouldFail = false
+                }
+            case .success:
+                flowSucceeded.fulfill()
+            default:
+                break
+            }
+        }
+        
+        engine.executeNewFlow(.configurable(flow))
+        
+        // Wait for first failure, then success after retry
+        wait(for: [firstFailure, flowSucceeded], timeout: 5, enforceOrder: true)
+        
+        // Verify the step was executed twice (initial failure + successful retry)
+        XCTAssertEqual(flow.configurableStep.executionCount, 2, "Step should have been executed twice")
+        XCTAssertEqual(failureCount, 1, "Should have only 1 failure before success")
+    }
+    
+    /// Test that retry count is limited by maxRetryCount
+    func testMaxRetryCountLimit() throws {
+        let flow = ConfigurableFlow(identifier: "max_retry_test")
+        flow.configurableStep.shouldFail = true // Always fail
+        
+        let delegate = TestFlowEngineDelegate()
+        let engine = TestFlowEngine(
+            stateStore: TestFlowStateStore(),
+            logger: { print("[\($1)] \(Date()) \(String(describing: $0)) \($2)") }
+        )
+        engine.delegate = delegate
+        
+        // Configure very short retry delays and low max retry count
+        engine.retryBaseDelay = 0.05
+        engine.retryMaxDelay = 0.1
+        engine.maxRetryCount = 2
+        
+        var failureCount = 0
+        let allRetriesExhausted = expectation(description: "all retries exhausted")
+        
+        delegate.onProgressCall = { flowId, progress, tags in
+            if case .failure = progress {
+                failureCount += 1
+                // Initial execution + 2 retries = 3 failures total
+                // But after maxRetryCount (2), flow should be disposed
+                if failureCount >= 3 {
+                    allRetriesExhausted.fulfill()
+                }
+            }
+        }
+        
+        engine.executeNewFlow(.configurable(flow))
+        
+        wait(for: [allRetriesExhausted], timeout: 5)
+        
+        // Initial + 2 retries = 3 executions
+        XCTAssertEqual(flow.configurableStep.executionCount, 3, "Step should have been executed 3 times (initial + 2 retries)")
+        
+        // Wait a bit more and verify flow was disposed (no longer in engine)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertNil(engine.flow(flow.identifier), "Flow should be disposed after max retries")
+    }
 }

@@ -6,12 +6,15 @@ public protocol WorkflowEngineDelegate: AnyObject {
     associatedtype Index: WorkflowIndex<AnyWorkflow>
     associatedtype Store: StateStore
 
+    /// Called when a flow's progress changes.
+    /// - Returns: `true` to proceed with the normal flow lifecycle (dispose on success/failure),
+    ///            `false` to retry the flow instead of disposing it.
     func workflowEngine(
         _ engine: WorkflowEngine<AnyWorkflow, Index, Store, Self>,
         flow: WorkflowId,
         didRegisterProgress: WorkflowProgress,
         tags: Set<String>
-    )
+    ) -> Bool
 }
 
 open class WorkflowEngine<
@@ -302,17 +305,25 @@ extension WorkflowEngine: WorkflowProgressDelegate {
             guard let self = self else { return }
 
             self.updateFlowProgress(withId: flowId, progress: progress)
-            self.delegate?.workflowEngine(
+            
+            // If delegate returns false on success, retry the flow instead of disposing it
+            let shouldAcceptCompletion = self.delegate?.workflowEngine(
                 self,
                 flow: flowId,
                 didRegisterProgress: progress,
                 tags: tags
-            )
+            ) ?? true
             
             switch progress {
             case .success:
-                self.flowIndex.resetRetryCount(forFlowWithId: flowId)
-                self.disposeFlow(withId: flowId)
+                if shouldAcceptCompletion {
+                    self.flowIndex.resetRetryCount(forFlowWithId: flowId)
+                    self.disposeFlow(withId: flowId)
+                } else {
+                    // Delegate returned false: retry instead of disposing
+                    self.logger(self, .debug, "Delegate rejected flow \(flowId) completion, scheduling retry")
+                    self.scheduleRetry(flowId: flowId)
+                }
                 
             case .failure:
                 if self.flowIndex.flows[flowId]?.anyFlow.flow.shouldRetryOnErrorUponUnarchived() == true {

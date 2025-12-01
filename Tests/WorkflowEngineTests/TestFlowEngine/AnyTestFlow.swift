@@ -19,10 +19,12 @@ enum AnyTestFlow: AnyWorkflowType {
         case .blocking(let flow): return flow
         case .flow1(let flow): return flow
         case .flow2(let flow): return flow
+        case .configurable(let flow): return flow
         }
     }
 
     case blocking(BlockingFlow)
     case flow1(TestFlow1)
     case flow2(TestFlow2)
+    case configurable(ConfigurableFlow)
 }
