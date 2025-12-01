@@ -21,11 +21,11 @@ extension WorkflowStep {
         }
     }
 
-  func prepareAfterUnarchiving() {}
+  public func prepareAfterUnarchiving() {}
 
-  func reset() {}
+  public func reset() {}
 
-  func cancel() {}
+  public func cancel() {}
 
-  func dispose() {}
+  public func dispose() {}
 }
