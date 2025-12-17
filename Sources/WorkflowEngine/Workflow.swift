@@ -22,6 +22,7 @@ public protocol Workflow: Codable, WorkflowStepProgressDelegate {
     func start()
     func resume()
     func reset()
+    func cancel()
     func dispose()
     func shouldRetryOnErrorUponUnarchived() -> Bool
 }

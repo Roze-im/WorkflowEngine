@@ -242,6 +242,49 @@ open class WorkflowEngine<
         }
     }
     
+    // MARK: - Cancel All Flows
+    
+    /// Cancels all currently tracked flows.
+    /// Each flow's steps will be cancelled, their progress set to `.cancelled`,
+    /// and all flows will be removed from the index.
+    public func cancelAllFlows() {
+        assert(Thread.isMainThread, "should be called on main thread")
+        logger(self, .debug, "cancelAllFlows")
+        
+        let allFlowIds = Array(flowIndex.flows.keys)
+        for flowId in allFlowIds {
+            cancelFlow(withId: flowId)
+        }
+    }
+    
+    /// Cancels a specific flow by its identifier.
+    /// The flow's steps will be cancelled, progress set to `.cancelled`,
+    /// and the flow will be removed from the index.
+    public func cancelFlow(withId flowId: WorkflowId) {
+        assert(Thread.isMainThread, "should be called on main thread")
+        logger(self, .debug, "cancelFlow: \(flowId)")
+        
+        guard let entry = flowIndex.flows[flowId] else {
+            logger(self, .warning, "flow to cancel not found: \(flowId)")
+            return
+        }
+        
+        let flow = entry.anyFlow.flow
+        
+        // Cancel all steps in the flow
+        flow.cancel()
+        
+        // Update progress to cancelled
+        _ = flowIndex.updateProgress(.cancelled, forFlowWithId: flowId)
+        
+        // Remove from index and archive
+        if let removedFlow = flowIndex.remove(flowWithId: flowId) {
+            removedFlow.flow.dispose()
+        }
+        
+        archiveFlows()
+    }
+    
     // MARK: - Retry with Exponential Backoff
     
     /// Calculate delay using exponential backoff: baseDelay * 2^retryCount, capped at maxDelay

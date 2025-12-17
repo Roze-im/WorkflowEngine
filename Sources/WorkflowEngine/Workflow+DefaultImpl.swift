@@ -83,7 +83,6 @@ extension Workflow {
       logger?(self, .trace, "[\(identifier)] reset")
       performUpdate { flow in
           flow.steps.forEach { step in
-              step.cancel()  // Cancel ongoing work before resetting
               step.reset()
               step.progress = .pending
           }
@@ -152,8 +151,13 @@ extension Workflow {
     }
     
     public func cancel() {
-      logger?(self, .trace, "[\(identifier)] cancel")
-      steps.forEach { $0.cancel() }
+        logger?(self, .trace, "[\(identifier)] cancel")
+        performUpdate { flow in
+            flow.steps.forEach { step in
+                step.cancel()
+                step.progress = .cancelled
+            }
+        }
     }
     
     public func sendProgressToDelegate() {
